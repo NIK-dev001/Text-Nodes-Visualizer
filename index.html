@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Graph Visualizer</title>
+    <style>
+        :root {
+            --bg-color: #0f0f11;
+            --panel-bg: #161618;
+            --text-main: #e0e0e0;
+            --text-dim: #888;
+            --accent: #6366f1; /* Indigo - строгий фиолетово-синий */
+            --accent-hover: #4f46e5;
+            --border: #27272a;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; outline: none; }
+        
+        body {
+            background: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            font-size: 14px;
+        }
+
+        /* ЛЕВАЯ ПАНЕЛЬ */
+        #sidebar {
+            width: 300px;
+            background: var(--panel-bg);
+            border-right: 1px solid var(--border);
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            z-index: 10;
+        }
+
+        h1 {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-main);
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        label {
+            font-size: 12px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        textarea {
+            width: 100%;
+            height: 120px;
+            background: var(--bg-color);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 12px;
+            font-family: inherit;
+            font-size: 13px;
+            line-height: 1.5;
+            resize: vertical;
+            border-radius: 4px;
+            transition: border-color 0.2s;
+        }
+
+        textarea:focus {
+            border-color: var(--accent);
+        }
+
+        /* Стилизация ползунков */
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            background: var(--accent);
+            border-radius: 50%;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            background: var(--accent-hover);
+        }
+
+        /* Кнопки */
+        .btn-group {
+            margin-top: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        button {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 10px;
+            font-family: inherit;
+            font-size: 12px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.2s;
+            text-align: center;
+        }
+
+        button:hover {
+            border-color: var(--text-dim);
+            background: rgba(255,255,255,0.03);
+        }
+
+        button.primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+        }
+
+        button.primary:hover {
+            background: var(--accent-hover);
+            border-color: var(--accent-hover);
+        }
+
+        /* CANVAS */
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            background: var(--bg-color);
+            /* Тонкая сетка на фоне для технического вида */
+            background-image: 
+                linear-gradient(var(--border) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border) 1px, transparent 1px);
+            background-size: 40px 40px;
+            background-position: center;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .overlay-controls {
+            position: absolute;
+            bottom: 24px;
+            right: 24px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="sidebar">
+    <div>
+        <h1>Graph Settings</h1>
+        <p style="color: var(--text-dim); font-size: 12px; margin-top: 4px;">Visualization Config</p>
+    </div>
+    
+    <div class="control-group">
+        <label>Input Data</label>
+        <textarea id="input-text" placeholder="Paste text here to visualize connections..."></textarea>
+    </div>
+
+    <div class="control-group">
+        <label>Connection Density <span id="val-density">50%</span></label>
+        <input type="range" id="density" min="0" max="100" value="40">
+    </div>
+
+    <div class="control-group">
+        <label>Spread Radius <span id="val-radius">70%</span></label>
+        <input type="range" id="radius" min="20" max="100" value="70">
+    </div>
+
+    <div class="control-group">
+        <label>Node Size <span id="val-fontSize">13px</span></label>
+        <input type="range" id="fontSize" min="10" max="24" value="13">
+    </div>
+
+    <div class="btn-group">
+        <button id="generate-btn" class="primary">Refresh Graph</button>
+        <button id="download-btn">Export PNG</button>
+    </div>
+</div>
+
+<div id="canvas-container">
+    <canvas id="neural-canvas"></canvas>
+</div>
+
+<script>
+    const textarea = document.getElementById('input-text');
+    const canvas = document.getElementById('neural-canvas');
+    const ctx = canvas.getContext('2d');
+    const container = document.getElementById('canvas-container');
+    
+    // Controls
+    const densityInput = document.getElementById('density');
+    const radiusInput = document.getElementById('radius');
+    const fontSizeInput = document.getElementById('fontSize');
+    const generateBtn = document.getElementById('generate-btn');
+    const downloadBtn = document.getElementById('download-btn');
+
+    // Labels
+    const valDensity = document.getElementById('val-density');
+    const valRadius = document.getElementById('val-radius');
+    const valFontSize = document.getElementById('val-fontSize');
+
+    function updateLabels() {
+        valDensity.textContent = densityInput.value + '%';
+        valRadius.textContent = radiusInput.value + '%';
+        valFontSize.textContent = fontSizeInput.value + 'px';
+    }
+
+    [densityInput, radiusInput, fontSizeInput].forEach(input => {
+        input.addEventListener('input', () => {
+            updateLabels();
+            generateGraph(textarea.value);
+        });
+    });
+
+    function resizeCanvas() {
+        // Учитываем DPI для четкости на Retina экранах
+        const dpr = window.devicePixelRatio || 1;
+        const rect = container.getBoundingClientRect();
+        
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        
+        ctx.scale(dpr, dpr);
+        
+        // CSS размеры
+        canvas.style.width = rect.width + 'px';
+        canvas.style.height = rect.height + 'px';
+
+        if(textarea.value.trim()) generateGraph(textarea.value);
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+    
+    // Init
+    setTimeout(() => {
+        resizeCanvas();
+        updateLabels();
+    }, 50);
+
+    function generateGraph(text) {
+        const width = canvas.width / (window.devicePixelRatio || 1);
+        const height = canvas.height / (window.devicePixelRatio || 1);
+
+        ctx.clearRect(0, 0, width, height);
+
+        if (!text.trim()) return;
+
+        // Process Text
+        const tokens = text.toLowerCase()
+            .replace(/[.,!?;:()"'\-\n]/g, ' ')
+            .split(/\s+/)
+            .filter(t => t.length > 2);
+
+        if (tokens.length === 0) return;
+
+        // Unique words only for cleaner look
+        const uniqueTokens = [...new Set(tokens)];
+        
+        const nodes = [];
+        const centerX = width / 2;
+        const centerY = height / 2;
+        
+        const radiusPercent = parseInt(radiusInput.value) / 100;
+        const baseRadius = Math.min(width, height) * 0.35 * radiusPercent;
+        const fontSize = parseInt(fontSizeInput.value);
+        const density = parseInt(densityInput.value) / 100;
+
+        // Create Nodes
+        for (let i = 0; i < uniqueTokens.length; i++) {
+            const angle = (i / uniqueTokens.length) * Math.PI * 2;
+            // Slight random offset for organic feel
+            const r = baseRadius * (0.9 + Math.random() * 0.2); 
+            
+            nodes.push({
+                text: uniqueTokens[i],
+                x: centerX + Math.cos(angle) * r,
+                y: centerY + Math.sin(angle) * r
+            });
+        }
+
+        // Draw Connections (Lines)
+        ctx.lineWidth = 1;
+        for (let i = 0; i < nodes.length; i++) {
+            for (let j = i + 1; j < nodes.length; j++) {
+                if (Math.random() < density) {
+                    ctx.beginPath();
+                    ctx.moveTo(nodes[i].x, nodes[i].y);
+                    ctx.lineTo(nodes[j].x, nodes[j].y);
+                    
+                    // Subtle gray lines
+                    ctx.strokeStyle = 'rgba(100, 100, 110, 0.15)';
+                    ctx.stroke();
+                }
+            }
+        }
+
+        // Draw Nodes (Text)
+        ctx.font = `${fontSize}px 'SF Mono', 'Menlo', monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        nodes.forEach(node => {
+            // Clean text, no glow
+            ctx.fillStyle = '#c0c0c0';
+            ctx.fillText(node.text, node.x, node.y);
+            
+            // Small dot indicator
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, 1.5, 0, Math.PI * 2);
+            ctx.fillStyle = '#6366f1'; // Accent color dot
+            ctx.fill();
+        });
+    }
+
+    generateBtn.addEventListener('click', () => {
+        generateGraph(textarea.value);
+    });
+
+    textarea.addEventListener('input', () => {
+        clearTimeout(window.drawTimeout);
+        window.drawTimeout = setTimeout(() => {
+            generateGraph(textarea.value);
+        }, 300);
+    });
+
+    downloadBtn.addEventListener('click', () => {
+        const link = document.createElement('a');
+        link.download = 'graph-export.png';
+        // toDataURL учитывает масштабирование canvas
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+    });
+
+</script>
+
+</body>
+</html>
